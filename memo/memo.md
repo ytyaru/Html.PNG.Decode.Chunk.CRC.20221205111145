@@ -9,11 +9,11 @@ JavaScriptでPNGのCRCチェックサム計算する
 * [DEMO][]
 * [リポジトリ][]
 
-[DEMO]:https://ytyaru.github.io/Html.PNG.Decode.Chunk.IHDR.PLTE.tRNS.20221204155322
-[リポジトリ]:https://github.com/ytyaru/Html.PNG.Decode.Chunk.IHDR.PLTE.tRNS.20221204155322
+[DEMO]:https://ytyaru.github.io/Html.PNG.Decode.Chunk.CRC.20221205111145
+[リポジトリ]:https://github.com/ytyaru/Html.PNG.Decode.Chunk.CRC.20221205111145
 
 ```sh
-NAME='Html.PNG.Decode.Chunk.IHDR.PLTE.tRNS.20221204155322'
+NAME='Html.PNG.Decode.Chunk.CRC.20221205111145'
 git clone https://github.com/ytyaru/$NAME
 cd $NAME/docs
 ./server.sh
@@ -68,7 +68,63 @@ data|N|チャンクのデータ
 
 [PNGで使うCRC32を計算する]:https://qiita.com/mikecat_mixc/items/e5d236e3a3803ef7d3c5
 
-　なんか難しそう。なのでまずはPNGデコーダのJSライブラリを探し、そのコードを読んでみる。
+　なんか難しそう。CRCライブラリを探してみたら[buffer-crc32][]を発見。だいぶ古い。READMEにはCRCのC言語コード例URL（[CRCAppendix][])があった。これをそのままJavaScriptに移植すればよさそう。
+
+[buffer-crc32]:https://github.com/brianloveswords/buffer-crc32
+[CRCAppendix]:https://www.w3.org/TR/png/#D-CRCAppendix
+
+```c
+/* Table of CRCs of all 8-bit messages. */
+unsigned long crc_table[256];
+
+/* Flag: has the table been computed? Initially false. */
+int crc_table_computed = 0;
+
+/* Make the table for a fast CRC. */
+void make_crc_table(void)
+{
+  unsigned long c;
+  int n, k;
+
+  for (n = 0; n < 256; n++) {
+    c = (unsigned long) n;
+    for (k = 0; k < 8; k++) {
+      if (c & 1)
+        c = 0xedb88320L ^ (c >> 1);
+      else
+        c = c >> 1;
+    }
+    crc_table[n] = c;
+  }
+  crc_table_computed = 1;
+}
+/* Update a running CRC with the bytes buf[0..len-1]--the CRC
+   should be initialized to all 1's, and the transmitted value
+   is the 1's complement of the final running CRC (see the
+   crc() routine below). */
+
+unsigned long update_crc(unsigned long crc, unsigned char *buf,
+                         int len)
+{
+  unsigned long c = crc;
+  int n;
+
+  if (!crc_table_computed)
+    make_crc_table();
+  for (n = 0; n < len; n++) {
+    c = crc_table[(c ^ buf[n]) & 0xff] ^ (c >> 8);
+  }
+  return c;
+}
+
+/* Return the CRC of the bytes buf[0..len-1]. */
+unsigned long crc(unsigned char *buf, int len)
+{
+  return update_crc(0xffffffffL, buf, len) ^ 0xffffffffL;
+}
+```
+
+　次はPNGデコーダのライブラリを探してコードを読んでみる。
 
 * [fast-png PngDecoder.ts#L123][]
 * [fast-png common.ts crc()][]
@@ -77,9 +133,9 @@ data|N|チャンクのデータ
 [fast-png common.ts]:https://github.com/image-js/fast-png/blob/main/src/common.ts
 [fast-png common.ts crc()]:https://github.com/image-js/fast-png/blob/main/src/common.ts#L29
 
-　TypeScriptで書いてあるらしい。学習したことはないが、何となく雰囲気で読もう。
+　TypeScriptで書いてあった。学習したことはないが、何となく雰囲気で読もう。
 
-　[PNGで使うCRC32を計算する][]にあるアルゴリズムにそっくりなコードが[fast-png common.ts][]に書いてある。このうちCRCを計算するメソッドは[fast-png common.ts crc()][]。
+　[PNGで使うCRC32を計算する][]と[CRCAppendix][]にあるアルゴリズムにそっくりなコードが[fast-png common.ts][]に書いてある。このうちCRCを計算するメソッドは[fast-png common.ts crc()][]。
 
 ```typescript
 export function crc(data: Uint8Array, length: number): number {
@@ -110,9 +166,9 @@ new Uint8Array(
 ),
 ```
 
-　このコードを[DataView][]形式にあわせたコードにすれば自分のコードに適用できそう。
+　このコードを[DataView][]形式にあわせたコードにすれば自分のコードに適用できそう。というわけで以下のように書いてみた。
 
-# コード
+# コード抜粋
 
 ## crc.js
 
@@ -189,7 +245,6 @@ png.js:57 IEND CRC true 2923585666 2923585666
 [Html.PNG.Chunk.IHDR.20221202171226]:https://github.com/ytyaru/Html.PNG.Chunk.IHDR.20221202171226
 [Html.PNG.Chunk.20221203102217]:https://github.com/ytyaru/Html.PNG.Chunk.20221203102217
 
-
 [PNG仕様]:https://www.w3.org/TR/png/
 [script要素]:https://developer.mozilla.org/ja/docs/Web/HTML/Element/script
 
@@ -220,6 +275,8 @@ png.js:57 IEND CRC true 2923585666 2923585666
 [TextDecoder]:https://developer.mozilla.org/ja/docs/Web/API/TextDecoder
 [Reflect]:https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/Reflect
 [Class]:https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Classes
+
+[テスト用PNG画像]:https://github.com/ytyaru/Html.PNG.Signature.20221202103208/blob/master/docs/asset/image/monar-mark-gold.png?raw=true
 
 <!--
 
